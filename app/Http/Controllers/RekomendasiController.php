@@ -5,9 +5,11 @@ use App\Alternatif;
 use App\Data_kode_lokasi;
 use Illuminate\Http\Request;
 use App\User_id;
+use App\Data_rekomendasi;
+use App\Nilai_alternatif;
+use App\rek_harga;
 use Illuminate\Support\Facades\DB as DB;
-class BaruController extends Controller
-
+class RekomendasiController extends Controller
 {
     /**
      * Create a new controller instance.
@@ -100,7 +102,7 @@ class BaruController extends Controller
        $j=1;
        $k=1;
        $const = array();
-       $count = 8; //banyaknya alternatif
+       $count = Alternatif::count();
        $mj=array();
        $mjj=array();
        $ress=array();
@@ -147,7 +149,7 @@ class BaruController extends Controller
 
     private function _preference_func($res){
         $pref = array();
-       $count = 8; //banyaknya alternatif        
+        $count = Alternatif::count();      
         $i=1;
         $j=1;
         $k=1;
@@ -175,7 +177,7 @@ class BaruController extends Controller
     private function _agregate_pref($res){
         $weight = array();
         $z=0;
-        $count = 8; //banyaknya alternatif        
+        $count = Alternatif::count();        
         $i=1;
         $j=1;
         $k=1;
@@ -234,7 +236,7 @@ class BaruController extends Controller
         $j=1;        
         $i=1;
         $wadah=0;
-        $count=8;//banyak alternatif
+        $count = Alternatif::count();
 
         foreach($res as $key=>$var){
             for($k=1 ; $k <=$count; $k++){
@@ -261,7 +263,7 @@ class BaruController extends Controller
         $lea=array();
         $j=1;        
         $i=1;
-        $count=8;//banyak alternatif
+        $count = Alternatif::count();
         $wadah = 0;
         foreach($res as $key=>$var){
             for($k=1 ; $k <=$count; $k++){
@@ -286,14 +288,26 @@ class BaruController extends Controller
         
     }
 
-    private function _net_outranking($res1,$res2){
+    private function _net_outranking($res1,$res2,$id_user,$id_lokasi){
 
         $val=array();
         $net=array();
-        $count=8;
+        $count = Alternatif::count();
+        $no = Data_rekomendasi::count();
+        $no_alternatif = $no+1;
+        $data_rekomendasi = new Data_rekomendasi;
+        $data_rekomendasi->no = $no+1;
+        $data_rekomendasi->id_user = $id_user;
+        $data_rekomendasi->id_lokasi = $id_lokasi;
+        $data_rekomendasi->save();
         foreach($res1 as $key=>$var){
             $net[$key][0] = $res1[$key] - $res2[$key];
-        
+            $nilai_alternatif = new Nilai_alternatif;
+            $nilai_alternatif->no = $no_alternatif;
+            $nilai_alternatif->id_alternatif = "A0".$key;
+            $nilai_alternatif->peringkat = 0;
+            $nilai_alternatif->skor = $net[$key][0];
+            $nilai_alternatif->save();
         }
         $val=$net;
         foreach($res1 as $key=>$var){
@@ -304,29 +318,37 @@ class BaruController extends Controller
               $val[$j+1][0] = $temp;
                 } 
             }
+        DB::table('nilai_alternatif')->where('skor', $val[$count])->update(['peringkat' => $count]);            
             $count=$count-1;
         }
-
-        foreach ($val as $key => $var) {
-            for ($j = 1; $j <= $count; $j++){
-                if ($net[$count][0] == $val[$j][0]){
-              $net[$count][1] = $val[$j];
-                }
-            }      
-            $count=$count-1;
-        }
-        
-        // foreach ($net as $key => $val) {
-            
-        //     foreach($net){
-        //     if ($net[$key][0] == $val[$i][0]){
-        //         $net[$key][1] = $val[$i];
-        //     }
-        // }
+        // NYOBA NGAMBIL REK HARGA TERTINGGI TAPI GABISA-BISA :(
+        // $rek_harga = array();
+        // $rek_harga = [
+        //         "h5_9","h10_14","h15_19","h20_24","h25_29","h30_abv"
+        // ];
+        // $kolom = "";
+        // $max = 0;
+        // $banyakkolom = rek_harga::all();
+        // foreach($rek_harga as $key=>$val){
+        //     $temp = (int) $banyakkolom[$key];
+        //     if($max < $temp ){
+        //         $kolom = $key;
+        //     }    
         // }
         
-
-        return $net;
+        $banyakdata = Data_rekomendasi::where('no',$no_alternatif)->count();
+        
+        $hasil = array();
+        $hasil['status'] = "200";
+        $hasil['hasil'] = DB::table('nilai_alternatif')
+        ->join('alternatif', 'nilai_alternatif.id_alternatif', '=', 'alternatif.id_alternatif')
+        // INI PENGAMBILANNYA TAPI TETEP JUGA GABUSA MAS :(
+        // ->join('rek_harga', 'alternatif.id_rharga', '=', 'rek_harga.id_rharga')
+        // ->select('alternatif.nama_alternatif','nilai_alternatif.peringkat','nilai_alternatif.skor','rek_harga.'.$kolom)
+        ->select('alternatif.nama_alternatif','nilai_alternatif.peringkat','nilai_alternatif.skor')
+        ->where('nilai_alternatif.no',$no_alternatif)->get();
+        return $hasil;
+        // GA NGERTI CARANYA MAININ HASIL DARI NGAMBIL DB::TABLE MAS:(, MAUNYA JUGA SI KEY HASIL ITU NAMA ALTERNATIFNYA
     }
     private function _insert($token){
         $id = User_id::select('id_user')->where('token', $token)->first();
@@ -400,9 +422,11 @@ class BaruController extends Controller
        $apref = $this->_agregate_pref($pref);
        $lea = $this->_leaving_func($apref);
        $ent = $this->_entering_func($apref);
-       $net = $this->_net_outranking($lea,$ent);
-
        $insert = $this->_insert($api_key);
+
+       $net = $this->_net_outranking($lea,$ent,$insert,$kode_lokasi->id_lokasi);
+
+       
 
 
        echo json_encode($net);
